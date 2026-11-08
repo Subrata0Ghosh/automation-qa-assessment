@@ -2,7 +2,7 @@
 
 **Author / Candidate:** Subrata Ghosh  
 **Target Web Application:** RealWorld Conduit Web App (`https://conduit.bondaracademy.com/`) & API (`https://conduit-api.bondaracademy.com/api`)  
-**Submission Repository:** Ready for Public GitHub Repository  
+**Public GitHub Repository:** [https://github.com/Subrata0Ghosh/automation-qa-assessment](https://github.com/Subrata0Ghosh/automation-qa-assessment)  
 **Assessment Date:** November 8, 2026  
 
 ---

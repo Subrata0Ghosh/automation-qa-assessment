@@ -1,0 +1,513 @@
+{
+  "name": "Task2_Workflow_Subrata_Ghosh",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "11111111-1111-4111-8111-111111111111",
+      "name": "Schedule Trigger (Hourly)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        180,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "trigger-morning-brief",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "22222222-2222-4222-8222-222222222222",
+      "name": "Webhook Trigger (On Demand)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        180,
+        500
+      ],
+      "webhookId": "morning-brief-hook"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.github.com/search/repositories?q=topic:automation+stars:>1000&sort=stars&order=desc&per_page=10",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "n8n-Automation-QA-Digest"
+            },
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "33333333-3333-4333-8333-333333333333",
+      "name": "Fetch Trending Automation Repos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        420,
+        400
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.items !== undefined && $json.items.length > 0 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "44444444-4444-4444-8444-444444444444",
+      "name": "Check GitHub API Success",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        660,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract items, sort, filter and select top 5 results\nconst rawData = $input.first().json;\nconst items = rawData.items || [];\n\n// Sort descending by stars just to guarantee ordering\nconst sorted = items.sort((a, b) => (b.stargazers_count || 0) - (a.stargazers_count || 0));\n\n// Slices top 5 repositories\nconst top5 = sorted.slice(0, 5).map((repo, idx) => ({\n  rank: idx + 1,\n  id: repo.id,\n  name: repo.name,\n  full_name: repo.full_name,\n  description: repo.description || 'No description provided.',\n  stars: repo.stargazers_count,\n  stars_formatted: (repo.stargazers_count >= 1000 ? (repo.stargazers_count / 1000).toFixed(1) + 'k' : repo.stargazers_count.toString()),\n  forks: repo.forks_count,\n  open_issues: repo.open_issues_count,\n  language: repo.language || 'Multi-language',\n  repo_url: repo.html_url,\n  owner: repo.owner ? repo.owner.login : 'unknown'\n}));\n\n// Highlighted top candidate for second API enrichment\nconst topRepo = top5[0];\n\nreturn [{\n  json: {\n    top_repo: topRepo,\n    top_5_repos: top5,\n    total_found: rawData.total_count || items.length,\n    digest_timestamp: new Date().toISOString()\n  }\n}];\n"
+      },
+      "id": "55555555-5555-4555-8555-555555555555",
+      "name": "Transform & Filter Top 5",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.github.com/repos/{{ $json.top_repo.full_name }}/commits?per_page=1",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "n8n-Automation-QA-Digest"
+            },
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "id": "66666666-6666-4666-8666-666666666666",
+      "name": "Enrich #1 Repo (Commit Activity)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1140,
+        320
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge top 5 list with enriched commit activity data\nconst prevData = $('Transform & Filter Top 5').first().json;\nconst commitResponse = $input.first().json;\n\nlet latestCommit = {\n  sha: 'N/A',\n  message: 'Commit details unavailable',\n  author: 'N/A',\n  date: 'N/A'\n};\n\nif (Array.isArray(commitResponse) && commitResponse.length > 0) {\n  const c = commitResponse[0];\n  latestCommit = {\n    sha: c.sha ? c.sha.substring(0, 7) : 'N/A',\n    message: c.commit && c.commit.message ? c.commit.message.split('\\n')[0] : 'No commit message',\n    author: c.commit && c.commit.author ? c.commit.author.name : 'Unknown',\n    date: c.commit && c.commit.author ? c.commit.author.date : 'Unknown'\n  };\n}\n\nconst topRepoEnriched = {\n  ...prevData.top_repo,\n  latest_commit: latestCommit\n};\n\nreturn [{\n  json: {\n    top_repo: topRepoEnriched,\n    top_5_repos: prevData.top_5_repos,\n    is_mega_project: topRepoEnriched.stars >= 50000,\n    digest_timestamp: prevData.digest_timestamp\n  }\n}];\n"
+      },
+      "id": "77777777-7777-4777-8777-777777777777",
+      "name": "Merge Enriched Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1380,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond_threshold",
+              "leftValue": "={{ $json.top_repo.stars }}",
+              "rightValue": 50000,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "88888888-8888-4888-8888-888888888888",
+      "name": "Conditional Star Threshold",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1620,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format High-Velocity Mega Alert Digest\nconst data = $input.first().json;\nconst top = data.top_repo;\nconst list = data.top_5_repos;\n\nlet listText = '';\nlist.forEach(r => {\n  listText += `${r.rank}. **[${r.full_name}](${r.repo_url})** \u2014 \u2b50 ${r.stars_formatted} | \ud83c\udf74 ${r.forks} | \ud83d\udee0\ufe0f ${r.language}\\n   _${r.description}_\\n\\n`;\n});\n\nconst content = `\ud83d\udd25 **[DAILY MORNING BRIEF: MEGA-TIER QA & AUTOMATION RADAR]** \ud83d\udd25\n*Threshold Notice: Top project exceeds 50,000+ GitHub Stars!*\n\n\ud83d\udc51 **SPOTLIGHT LEADER (#1):**\n\u2022 **Repository:** [${top.full_name}](${top.repo_url})\n\u2022 **Stars:** \u2b50 **${top.stars.toLocaleString()}** (${top.stars_formatted})\n\u2022 **Open Issues:** \ud83d\udc1e ${top.open_issues} | **Forks:** \ud83c\udf74 ${top.forks}\n\u2022 **Primary Language:** \ud83d\udcbb ${top.language}\n\u2022 **Latest Commit:** \\`${top.latest_commit.sha}\\` \"${top.latest_commit.message}\" by *${top.latest_commit.author}* (${top.latest_commit.date})\n\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n\ud83d\udcca **TOP 5 AUTOMATION REPOSITORIES TODAY:**\n${listText}\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n*Generated automatically by n8n Morning Brief Workflow at ${data.digest_timestamp}*`;\n\nreturn [{\n  json: {\n    tier: 'MEGA_HIGH_VELOCITY',\n    message: content,\n    payload: {\n      content: content,\n      username: \"QA Automation Morning Brief\"\n    }\n  }\n}];\n"
+      },
+      "id": "99999999-9999-4999-8999-999999999999",
+      "name": "Format Mega-Tier Brief",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1860,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format Standard Morning Digest\nconst data = $input.first().json;\nconst top = data.top_repo;\nconst list = data.top_5_repos;\n\nlet listText = '';\nlist.forEach(r => {\n  listText += `${r.rank}. **[${r.full_name}](${r.repo_url})** \u2014 \u2b50 ${r.stars_formatted} | \ud83c\udf74 ${r.forks}\\n   _${r.description}_\\n\\n`;\n});\n\nconst content = `\u2600\ufe0f **[DAILY MORNING BRIEF: AUTOMATION RADAR]** \u2600\ufe0f\n\n\u2b50 **Leading Automation Project:**\n\u2022 **Repository:** [${top.full_name}](${top.repo_url})\n\u2022 **Stars:** \u2b50 ${top.stars_formatted}\n\u2022 **Latest Activity:** \\`${top.latest_commit.sha}\\` by *${top.latest_commit.author}*\n\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n\ud83d\udccb **TOP 5 PROJECTS:**\n${listText}\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n*Generated by n8n at ${data.digest_timestamp}*`;\n\nreturn [{\n  json: {\n    tier: 'STANDARD_GROWTH',\n    message: content,\n    payload: {\n      content: content,\n      username: \"QA Automation Morning Brief\"\n    }\n  }\n}];\n"
+      },
+      "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "name": "Format Standard Brief",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1860,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.NOTIFICATION_WEBHOOK_URL || 'https://webhook.site/placeholder-channel' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "name": "Send Notification Digest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2120,
+        320
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Handle API 1 Search Failure Gracefully\nconst errorData = $input.first().json;\nconst alertMsg = `\u26a0\ufe0f **[INCIDENT ALERT: Morning Brief Data Collection Failed]** \u26a0\ufe0f\nEndpoint: GitHub Search API (/search/repositories)\nReason: Response returned empty results, rate-limited, or failed network connectivity.\nTimestamp: ${new Date().toISOString()}\nAction: Workflow prevented silent crash. Retrying scheduled on next cycle.`;\n\nreturn [{\n  json: {\n    status: 'ERROR_LOGGED',\n    alert_message: alertMsg,\n    raw_error: errorData,\n    payload: {\n      content: alertMsg,\n      username: \"Automation Monitor Alert\"\n    }\n  }\n}];\n"
+      },
+      "id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      "name": "API 1 Error Fallback Logger",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.NOTIFICATION_WEBHOOK_URL || 'https://webhook.site/placeholder-channel' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      "name": "Dispatch Error Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1140,
+        520
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {},
+      "id": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      "name": "Global Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        180,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Catch unexpected workflow exceptions\nconst errorInfo = $input.first().json;\nconst errMsg = `\ud83d\udea8 **[CRITICAL WORKFLOW EXCEPTION: Task2 Morning Brief]** \ud83d\udea8\nExecution ID: ${$execution.id}\nNode: ${errorInfo.execution ? errorInfo.execution.lastNodeExecuted : 'Unknown'}\nError: ${errorInfo.message || 'Unhandled error occurred'}\nTimestamp: ${new Date().toISOString()}`;\n\nreturn [{\n  json: {\n    payload: {\n      content: errMsg,\n      username: \"n8n Error Watchdog\"\n    }\n  }\n}];\n"
+      },
+      "id": "ffffffff-ffff-4fff-8fff-ffffffffffff",
+      "name": "Format Global Error Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        420,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.NOTIFICATION_WEBHOOK_URL || 'https://webhook.site/placeholder-channel' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "00000000-0000-4000-8000-000000000000",
+      "name": "Send Global Error Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        720
+      ],
+      "continueOnFail": true
+    }
+  ],
+  "connections": {
+    "Schedule Trigger (Hourly)": {
+      "main": [
+        [
+          {
+            "node": "Fetch Trending Automation Repos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Trigger (On Demand)": {
+      "main": [
+        [
+          {
+            "node": "Fetch Trending Automation Repos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Trending Automation Repos": {
+      "main": [
+        [
+          {
+            "node": "Check GitHub API Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check GitHub API Success": {
+      "main": [
+        [
+          {
+            "node": "Transform & Filter Top 5",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "API 1 Error Fallback Logger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform & Filter Top 5": {
+      "main": [
+        [
+          {
+            "node": "Enrich #1 Repo (Commit Activity)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich #1 Repo (Commit Activity)": {
+      "main": [
+        [
+          {
+            "node": "Merge Enriched Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Enriched Data": {
+      "main": [
+        [
+          {
+            "node": "Conditional Star Threshold",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Conditional Star Threshold": {
+      "main": [
+        [
+          {
+            "node": "Format Mega-Tier Brief",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Standard Brief",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Mega-Tier Brief": {
+      "main": [
+        [
+          {
+            "node": "Send Notification Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Standard Brief": {
+      "main": [
+        [
+          {
+            "node": "Send Notification Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API 1 Error Fallback Logger": {
+      "main": [
+        [
+          {
+            "node": "Dispatch Error Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Global Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Format Global Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Global Error Alert": {
+      "main": [
+        [
+          {
+            "node": "Send Global Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "f78d91a2-39f2-4bc2-8ef4-d3a47981b101",
+  "id": "Task2_MorningBrief_Subrata",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "local-dev-instance"
+  },
+  "tags": [
+    {
+      "name": "QA"
+    },
+    {
+      "name": "Automation"
+    },
+    {
+      "name": "Morning-Brief"
+    },
+    {
+      "name": "GitHub-API"
+    }
+  ]
+}

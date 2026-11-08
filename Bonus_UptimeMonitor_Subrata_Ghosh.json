@@ -1,0 +1,432 @@
+{
+  "name": "Bonus_UptimeMonitor_Subrata_Ghosh",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      },
+      "id": "b1111111-1111-4111-8111-111111111111",
+      "name": "Schedule Trigger (Every 5 Mins)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        180,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Record test target and starting timestamp\nreturn [{\n  json: {\n    target_url: 'https://conduit-api.bondaracademy.com/api/articles?limit=1',\n    web_app_url: 'https://conduit.bondaracademy.com/',\n    start_time: Date.now(),\n    attempt: 1,\n    check_timestamp: new Date().toISOString()\n  }\n}];\n"
+      },
+      "id": "b2222222-2222-4222-8222-222222222222",
+      "name": "Initialize Ping Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        380,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.target_url }}",
+        "options": {
+          "timeout": 8000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "b3333333-3333-4333-8333-333333333333",
+      "name": "Ping Conduit Web App",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        580,
+        300
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Measure response time and verify HTTP 200 status\nconst initData = $('Initialize Ping Context').first().json;\nconst durationMs = Date.now() - initData.start_time;\nconst httpResponse = $input.first().json;\n\n// Extract status code (n8n returns status or statusCode when fullResponse is configured or in response headers)\nlet statusCode = 200;\nlet isError = false;\n\nif (httpResponse.statusCode) {\n  statusCode = httpResponse.statusCode;\n} else if (httpResponse.error) {\n  statusCode = 500;\n  isError = true;\n}\n\nconst isHealthy = statusCode === 200 && !isError;\nconst isDegraded = durationMs >= 1500;\n\nreturn [{\n  json: {\n    target_url: initData.target_url,\n    web_app_url: initData.web_app_url,\n    status_code: statusCode,\n    duration_ms: durationMs,\n    is_healthy: isHealthy,\n    is_degraded: isDegraded,\n    attempt: 1,\n    timestamp: new Date().toISOString()\n  }\n}];\n"
+      },
+      "id": "b4444444-4444-4444-8444-444444444444",
+      "name": "Evaluate Status & Latency",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond_health",
+              "leftValue": "={{ $json.is_healthy }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b5555555-5555-4555-8555-555555555555",
+      "name": "Check If Ping Passed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        980,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 3,
+        "unit": "seconds"
+      },
+      "id": "b6666666-6666-4666-8666-666666666666",
+      "name": "Wait 3s (Retry Delay)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://conduit-api.bondaracademy.com/api/articles?limit=1",
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "b7777777-7777-4777-8777-777777777777",
+      "name": "Retry Ping (Attempt 2)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1400,
+        420
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Evaluate retry response\nconst firstAttempt = $('Evaluate Status & Latency').first().json;\nconst retryRes = $input.first().json;\n\nlet statusCode = 200;\nlet isError = false;\n\nif (retryRes.statusCode) {\n  statusCode = retryRes.statusCode;\n} else if (retryRes.error) {\n  statusCode = 500;\n  isError = true;\n}\n\nconst isConfirmedDown = (statusCode !== 200) || isError;\n\nreturn [{\n  json: {\n    target_url: firstAttempt.target_url,\n    web_app_url: firstAttempt.web_app_url,\n    first_attempt_status: firstAttempt.status_code,\n    first_attempt_duration: firstAttempt.duration_ms,\n    second_attempt_status: statusCode,\n    is_confirmed_down: isConfirmedDown,\n    timestamp: new Date().toISOString()\n  }\n}];\n"
+      },
+      "id": "b8888888-8888-4888-8888-888888888888",
+      "name": "Evaluate Retry Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1600,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond_outage",
+              "leftValue": "={{ $json.is_confirmed_down }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b9999999-9999-4999-8999-999999999999",
+      "name": "Is Outage Confirmed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1800,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format Critical Outage Alert\nconst data = $input.first().json;\n\nconst alertText = `\ud83d\udea8 **[CRITICAL OUTAGE ALERT: Conduit Web App Is DOWN]** \ud83d\udea8\n\n\ud83d\udd34 **Application Status:** DOWN / UNRESPONSIVE\n\ud83c\udfaf **Target Endpoint:** \\`${data.target_url}\\`\n\ud83c\udf10 **Web App:** ${data.web_app_url}\n\u26a0\ufe0f **Status Code (Attempt 1):** ${data.first_attempt_status} (${data.first_attempt_duration}ms)\n\u26a0\ufe0f **Status Code (Attempt 2 - Retry):** ${data.second_attempt_status}\n\u23f1\ufe0f **Downtime Detected:** ${data.timestamp}\n\ud83d\udd01 **Retry Logic:** 2 consecutive attempts failed (3s backoff).\n\ud83d\udea8 **Impact:** Users are unable to load feed or authenticate. Immediate investigation required!`;\n\nreturn [{\n  json: {\n    severity: 'CRITICAL',\n    payload: {\n      content: alertText,\n      username: \"Uptime Sentinel\"\n    }\n  }\n}];\n"
+      },
+      "id": "baaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "name": "Format Outage Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2020,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.NOTIFICATION_WEBHOOK_URL || 'https://webhook.site/placeholder-channel' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbc",
+      "name": "Post Outage Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2240,
+        360
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format Transient Flap Recovery Notice\nconst data = $input.first().json;\n\nconst warningText = `\u26a0\ufe0f **[TRANSIENT NETWORK WARNING: Conduit Web App Recovered]** \u26a0\ufe0f\nTarget: \\`${data.target_url}\\`\nAttempt 1 failed with status ${data.first_attempt_status}, but Attempt 2 succeeded after 3s retry.\nTimestamp: ${data.timestamp}\nStatus: Healthy (No outage declared due to retry guard).`;\n\nreturn [{\n  json: {\n    severity: 'WARNING',\n    payload: {\n      content: warningText,\n      username: \"Uptime Sentinel\"\n    }\n  }\n}];\n"
+      },
+      "id": "bcccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      "name": "Format Flap Warning",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2020,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.NOTIFICATION_WEBHOOK_URL || 'https://webhook.site/placeholder-channel' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "bddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      "name": "Post Flap Warning",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2240,
+        500
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Healthy Ping Logger & Daily Summary Tracker\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    metric: 'UPTIME_PING_SUCCESS',\n    target: data.target_url,\n    status_code: data.status_code,\n    latency_ms: data.duration_ms,\n    is_degraded: data.is_degraded,\n    recorded_at: data.timestamp\n  }\n}];\n"
+      },
+      "id": "beeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      "name": "Record Normal Health Metric",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        200
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger (Every 5 Mins)": {
+      "main": [
+        [
+          {
+            "node": "Initialize Ping Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Initialize Ping Context": {
+      "main": [
+        [
+          {
+            "node": "Ping Conduit Web App",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ping Conduit Web App": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Status & Latency",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Status & Latency": {
+      "main": [
+        [
+          {
+            "node": "Check If Ping Passed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check If Ping Passed": {
+      "main": [
+        [
+          {
+            "node": "Record Normal Health Metric",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait 3s (Retry Delay)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 3s (Retry Delay)": {
+      "main": [
+        [
+          {
+            "node": "Retry Ping (Attempt 2)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry Ping (Attempt 2)": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Retry Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Retry Result": {
+      "main": [
+        [
+          {
+            "node": "Is Outage Confirmed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Outage Confirmed?": {
+      "main": [
+        [
+          {
+            "node": "Format Outage Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Flap Warning",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Outage Alert": {
+      "main": [
+        [
+          {
+            "node": "Post Outage Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Flap Warning": {
+      "main": [
+        [
+          {
+            "node": "Post Flap Warning",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "c88f91a2-59f2-4bc2-8ef4-d3a47981b102",
+  "id": "Bonus_UptimeMonitor_Subrata",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "local-dev-instance"
+  },
+  "tags": [
+    {
+      "name": "QA"
+    },
+    {
+      "name": "Uptime-Monitor"
+    },
+    {
+      "name": "Conduit"
+    },
+    {
+      "name": "Observability"
+    }
+  ]
+}

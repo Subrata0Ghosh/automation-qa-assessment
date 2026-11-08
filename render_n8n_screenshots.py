@@ -989,3 +989,4 @@ for src, _ in screens:
         os.remove(src)
 
 print("All screenshots generated and temp files cleaned up!")
+

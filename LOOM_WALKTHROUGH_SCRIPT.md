@@ -97,3 +97,4 @@ Before hitting record on Loom, open these tabs in your browser in order:
 - Speak with natural enthusiasm and confidence.
 - Use your mouse cursor to point to specific nodes on the canvas and rows in the bug table as you speak.
 - If you stumble, pause for 2 seconds and re-say the sentence—Loom lets you trim easily!
+

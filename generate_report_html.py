@@ -385,3 +385,4 @@ with open("Task1_QA_Report_Subrata_Ghosh.html", "w", encoding="utf-8") as f:
     f.write(html_content)
 
 print("Generated Task1_QA_Report_Subrata_Ghosh.html successfully.")
+

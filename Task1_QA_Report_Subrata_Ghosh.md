@@ -107,3 +107,4 @@ To resolve this permanently and build resilience into the application, implement
 - **Figure 2:** `screenshots/bug_stale_validation.png` &mdash; Stale Validation Error where "title can't be blank" persists on input change.
 - **Figure 3:** `screenshots/bug_blank_settings.png` &mdash; Settings Form Blanking where Username and Email fields load empty.
 - **Figure 4:** `screenshots/article_view_with_delete_action.png` &mdash; Destructive Deletion button executing immediate purge with zero confirmation.
+
